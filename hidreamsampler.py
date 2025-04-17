@@ -288,7 +288,16 @@ def load_models(model_type, use_uncensored_llm=False):
     
     # --- 2. Load Transformer (Conditional) ---
     print(f"\n[2] Preparing Transformer from: {model_path}"); transformer_load_kwargs = {"subfolder": "transformer", "torch_dtype": model_dtype, "low_cpu_mem_usage": True}
-    if is_nf4: print("     Type: NF4")
+    if is_nf4:
+        print("     Type: NF4")
+        # VERSUCH: device_map=auto auch für Transformer bei NF4
+        if accelerate_available:
+            print("     Applying device_map='auto' for Transformer loading.")
+            transformer_load_kwargs["device_map"] = "auto"
+            # Hinweis: Wir lassen pipe.enable_sequential_cpu_offload() später vorerst drin.
+            # Hinweis: Wir lassen transformer.to("cuda") später vorerst drin, falls device_map es nicht auf die GPU legt.
+        else:
+            print("     Accelerate not found, cannot use device_map for Transformer.")
     else: # Default BNB case
         print("     Type: Standard (Applying 4-bit BNB quantization)")
         if bnb_transformer_4bit_config:
@@ -296,7 +305,11 @@ def load_models(model_type, use_uncensored_llm=False):
         else:
             raise ImportError("BNB config required for transformer but unavailable.")
     print("     Loading Transformer... (May download files)"); transformer = HiDreamImageTransformer2DModel.from_pretrained(model_path, **transformer_load_kwargs)
-    print("     Moving Transformer to CUDA..."); transformer.to("cuda")
+    # Verschiebe nur dann manuell, wenn device_map nicht verwendet wurde ODER accelerate nicht verfügbar ist
+    if not is_nf4 or not accelerate_available:
+        print("     Moving Transformer to CUDA manually..."); transformer.to("cuda")
+    else:
+        print("     Transformer placement handled by device_map='auto'.") # Oder sollte zumindest
     step2_mem = torch.cuda.memory_allocated() / 1024**2 if torch.cuda.is_available() else 0; print(f"✅ Transformer loaded! (VRAM: {step2_mem:.2f} MB)")
     
     # --- 3. Load Scheduler ---
@@ -327,7 +340,13 @@ def load_models(model_type, use_uncensored_llm=False):
 RESOLUTION_OPTIONS = [ # (Keep list the same)
     "1024 × 1024 (Square)","768 × 1360 (Portrait)","1360 × 768 (Landscape)",
     "880 × 1168 (Portrait)","1168 × 880 (Landscape)","1248 × 832 (Landscape)",
-    "832 × 1248 (Portrait)"
+    "832 × 1248 (Portrait)",
+    "512 × 512 (Low VRAM Square)", # Hinzugefügt
+    "256 × 256 (Very Low VRAM Square)" # Hinzugefügt
+    "128 × 128 (Richtig Low Dude!)" # Hinzugefügt
+    "64 × 64 (Keine Boobies, vllt nur n Nippel?)" # Hinzugefügt
+    "32 × 32 (Nippel?)" # Hinzugefügt       
+    "16 × 16 (???)" # Hinzugefügt
 ]
 
 def parse_resolution(resolution_str):
